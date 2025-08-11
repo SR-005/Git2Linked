@@ -1,7 +1,9 @@
 import requests
 import base64           #github readme is based of base64, this is needed dor decoding the info
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from summarize import main as summarizereadme
 
 #getting sensitive information from .env file:
 load_dotenv()
