@@ -1,2 +1,5 @@
 /g2lenv
 *.env
+__pycache__/
+*.pyc
+*.pyo

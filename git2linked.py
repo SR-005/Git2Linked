@@ -33,5 +33,9 @@ if "content" in readmedata:
     content = base64.b64decode(readmedata["content"]).decode("utf-8")   #base64.b64decode converts it into raw bytes and decode("utf-8") turns it into normal strings 
     print("\n=== README.md ===\n")
     print(content)
+
+    linkedinfeed=summarizereadme(content)
+    print("\n=======LinkedIn-Friendly Summary=======\n")
+    print(linkedinfeed)
 else:
     print("No README found for this repository.")
