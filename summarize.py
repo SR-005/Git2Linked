@@ -11,9 +11,8 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 chat = model.start_chat(history=[])
 
 #API Fetch Function
-def main(content):
+def main(prompt):
     print("-------------content recieved-------------")
-    prompt = f"Summarize the following GitHub README in under 100 words for a LinkedIn post:\n\n{content}"
     try:
         response=model.generate_content(prompt)
         return response.text
