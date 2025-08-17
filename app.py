@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, url_for, session
+from flask import Flask, request, redirect, url_for, session, jsonify
 import requests
 from dotenv import load_dotenv
 import os
@@ -59,7 +59,7 @@ def post():
     if not access_token:
         return redirect(url_for("index"))
 
-    headers = {"Authorization": f"Bearer {access_token}","X-Restli-Protocol-Version": "2.0.0"}
+    headers = {"Authorization": f"Bearer {access_token}", "X-Restli-Protocol-Version": "2.0.0"}
 
     # Get user profile via OpenID endpoint
     me_url = "https://api.linkedin.com/v2/userinfo"
@@ -71,24 +71,139 @@ def post():
     user_sub = userdata.get("sub")  # OpenID returns "sub" instead of "id"
     authorurn = f"urn:li:person:{user_sub}"
 
-    # Prepare post payload
+    # -----------------------------------------------
+    # STEP 1: Text-only payload (default case)
+    # -----------------------------------------------
     post_text = "Hello from my Flask app!"
-    payload = {"author": authorurn,"lifecycleState": "PUBLISHED","specificContent": {
-            "com.linkedin.ugc.ShareContent": {"shareCommentary": {"text": post_text},"shareMediaCategory": "NONE" }},
-            "visibility": { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}}
+    payload = {
+        "author": authorurn,
+        "lifecycleState": "PUBLISHED",
+        "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                "shareCommentary": {"text": post_text},
+                "shareMediaCategory": "NONE"
+            }
+        },
+        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+    }
 
-    #Proxy Posting
+    #Proxy Posting (simulation only)
     print("✅ Post payload prepared (simulation only):")
     print(payload)
     print("✅ Post created successfully (SIMULATION) — No data sent to LinkedIn.")
     
     # Actual Posting
-'''    post_url = "https://api.linkedin.com/v2/ugcPosts"
+    '''
+    post_url = "https://api.linkedin.com/v2/ugcPosts"
     post_response = requests.post(post_url, headers={**headers, "Content-Type": "application/json"}, json=payload)
     if post_response.status_code == 201:
         print("✅ Post created successfully")
     else:
-        print(f"❌ Failed to create post: {post_response.text}")'''
+        print(f"❌ Failed to create post: {post_response.text}")
+    '''
+
+    return jsonify({"status": "simulation", "message": "Text post payload prepared"})
+
+
+# -----------------------------------------------
+# NEW FEATURE: Upload image + get asset URN
+# -----------------------------------------------
+@app.route("/upload")
+def upload():
+    access_token = session.get("access_token")
+    if not access_token:
+        return redirect(url_for("index"))
+
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+    # Step 1: Register upload
+    register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+    register_body = {
+        "registerUploadRequest": {
+            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "owner": "urn:li:person:me",  # "me" = current user
+            "serviceRelationships": [
+                {"relationshipType": "OWNER", "identifier": "urn:li:userGeneratedContent"}
+            ]
+        }
+    }
+    reg_response = requests.post(register_url, headers=headers, json=register_body)
+    reg_json = reg_response.json()
+
+    # Extract upload URL + asset URN
+    upload_url = reg_json["value"]["uploadMechanism"]["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]["uploadUrl"]
+    asset_urn = reg_json["value"]["asset"]
+
+    # Step 2: Upload actual image file
+    file_path = "static/test.jpg"  # put your image in a /static folder
+    with open(file_path, "rb") as f:
+        upload_headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/octet-stream"}
+        upload_resp = requests.put(upload_url, data=f, headers=upload_headers)
+
+    # Save asset_urn in session for later use in posts
+    session["asset_urn"] = asset_urn
+
+    return jsonify({"status": "uploaded", "asset_urn": asset_urn, "upload_status": upload_resp.status_code})
+
+
+# -----------------------------------------------
+# NEW FEATURE: Post text + uploaded media together
+# -----------------------------------------------
+@app.route("/post_with_media")
+def post_with_media():
+    access_token = session.get("access_token")
+    if not access_token:
+        return redirect(url_for("index"))
+
+    asset_urn = session.get("asset_urn")
+    if not asset_urn:
+        return "No uploaded asset found. Please visit /upload first."
+
+    headers = {"Authorization": f"Bearer {access_token}", "X-Restli-Protocol-Version": "2.0.0", "Content-Type": "application/json"}
+
+    # Get user info again for author URN
+    me_url = "https://api.linkedin.com/v2/userinfo"
+    response = requests.get(me_url, headers=headers)
+    userdata = response.json()
+    user_sub = userdata.get("sub")
+    authorurn = f"urn:li:person:{user_sub}"
+
+    # Media + text payload
+    post_text = "Hello with an image from my Flask app!"
+    media_payload = {
+        "author": authorurn,
+        "lifecycleState": "PUBLISHED",
+        "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                "shareCommentary": {"text": post_text},
+                "shareMediaCategory": "IMAGE",
+                "media": [{
+                    "status": "READY",
+                    "description": {"text": "Uploaded demo image"},
+                    "media": asset_urn,
+                    "title": {"text": "My Uploaded Image"}
+                }]
+            }
+        },
+        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+    }
+
+    # Proxy Posting (simulation)
+    print("✅ Media post payload prepared (simulation only):")
+    print(media_payload)
+
+    # Actual Posting (uncomment to enable real post)
+    '''
+    post_url = "https://api.linkedin.com/v2/ugcPosts"
+    post_response = requests.post(post_url, headers=headers, json=media_payload)
+    if post_response.status_code == 201:
+        print("✅ Media post created successfully")
+    else:
+        print(f"❌ Failed to create media post: {post_response.text}")
+    '''
+
+    return jsonify({"status": "simulation", "message": "Media post payload prepared", "asset_urn": asset_urn})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
